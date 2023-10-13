@@ -428,6 +428,7 @@ checksum = "9ed9a281f7bc9b7576e61468ba615a66a5c8cfdff42420a70aa82701a3b1e292"
 dependencies = [
  "block-buffer 0.10.4",
  "crypto-common",
+ "subtle",
 ]
 
 [[package]]
@@ -744,6 +745,15 @@ checksum = "2a2a2320eb7ec0ebe8da8f744d7812d9fc4cb4d09344ac01898dbcb6a20ae69b"
 dependencies = [
  "crypto-mac",
  "digest 0.9.0",
+]
+
+[[package]]
+name = "hmac"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
+dependencies = [
+ "digest 0.10.7",
 ]
 
 [[package]]
@@ -1149,7 +1159,7 @@ dependencies = [
  "base64 0.13.1",
  "bitflags",
  "cfg-if",
- "hmac",
+ "hmac 0.11.0",
  "oauth-credentials",
  "oauth1-request-derive",
  "percent-encoding",
@@ -1678,6 +1688,7 @@ dependencies = [
  "atrium-xrpc",
  "bytes",
  "env_logger",
+ "hmac 0.12.1",
  "log",
  "once_cell",
  "openssl",
@@ -1686,6 +1697,7 @@ dependencies = [
  "reqwest",
  "scraper",
  "serde",
+ "sha1",
  "time",
  "tokio",
  "toml",
@@ -1959,6 +1971,17 @@ dependencies = [
  "cpufeatures",
  "digest 0.9.0",
  "opaque-debug",
+]
+
+[[package]]
+name = "sha1"
+version = "0.10.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e3bf829a2d51ab4a5ddf1352d8470c140cadc8301b2ae1789db023f01cedd6ba"
+dependencies = [
+ "cfg-if",
+ "cpufeatures",
+ "digest 0.10.7",
 ]
 
 [[package]]

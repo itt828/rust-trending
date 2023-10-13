@@ -9,10 +9,12 @@ use std::{
 use anyhow::{Context, Result};
 use atrium_api::{app::bsky, client::AtpServiceClient, com::atproto};
 use bytes::Bytes;
+use hmac::{Hmac, Mac};
 use log::{error, info};
 use once_cell::sync::Lazy;
 use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
+use sha1::Sha1;
 use time::OffsetDateTime;
 use twitter_v2::{authorization::Oauth1aToken, TwitterApi};
 use unicode_segmentation::UnicodeSegmentation;
@@ -57,6 +59,13 @@ struct BlueskyConfig {
     password: String,
 }
 
+#[derive(Deserialize, Clone)]
+struct TraqConfig {
+    webhook_id: String,
+    webhook_secret: String,
+    channel_id: String,
+}
+
 #[derive(Deserialize, Debug)]
 struct DenylistConfig {
     names: Vec<String>,
@@ -90,6 +99,8 @@ struct Config {
     mastodon: Option<MastodonConfig>,
     #[serde(default)]
     bluesky: Option<BlueskyConfig>,
+    #[serde(default)]
+    traq: Option<TraqConfig>,
     denylist: DenylistConfig,
 }
 
@@ -261,6 +272,16 @@ fn make_toot(repo: &Repo) -> String {
     format!("{}{}{}{}", prefix, description, stars, url)
 }
 
+type HmacSha1 = Hmac<Sha1>;
+fn make_traq_post(config: &TraqConfig, repo: &Repo) -> Result<(String, String)> {
+    let message = make_tweet(repo);
+
+    let mut mac = HmacSha1::new_from_slice(config.webhook_secret.as_bytes())?;
+    mac.update(message.as_bytes());
+    let signature = format!("{:X}", mac.finalize().into_bytes());
+    Ok((signature, message))
+}
+
 async fn is_repo_posted(conn: &mut redis::aio::Connection, repo: &Repo) -> Result<bool> {
     Ok(conn
         .exists(format!("{}/{}", repo.author, repo.name))
@@ -384,6 +405,23 @@ async fn post_bluesky(config: &BlueskyConfig, repo: &Repo) -> Result<()> {
     Ok(())
 }
 
+async fn post_traq(config: &TraqConfig, signature: String, message: String) -> Result<()> {
+    let client = reqwest::Client::new();
+    client
+        .post(format!(
+            "https://q.trap.jp/api/v3/webhooks/{}",
+            config.webhook_id
+        ))
+        .header("X-TRAQ-Signature", signature)
+        .header("Content-Type", "text/plain; charset=utf-8")
+        .header("X-TRAQ-Channel-Id", config.channel_id.clone())
+        .body(message)
+        .send()
+        .await?
+        .error_for_status()?;
+    Ok(())
+}
+
 async fn mark_posted_repo(
     conn: &mut redis::aio::Connection,
     repo: &Repo,
@@ -422,6 +460,16 @@ async fn main_loop(config: &Config, redis_conn: &mut redis::aio::Connection) -> 
 
         if let Some(config) = &config.bluesky {
             if let Err(error) = post_bluesky(config, &repo)
+                .await
+                .context("While posting to Bluesky")
+            {
+                error!("{:#?}", error);
+            }
+        }
+
+        if let Some(config) = &config.traq {
+            let (signature, message) = make_traq_post(config, &repo)?;
+            if let Err(error) = post_traq(config, signature, message)
                 .await
                 .context("While posting to Bluesky")
             {
