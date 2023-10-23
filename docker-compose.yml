@@ -8,6 +8,3 @@ services:
     environment:
       - RUST_LOG=info
       - WEBHOOK_SECRET=secret
-
-    volumes:
-      - ./config.toml:/config.toml
