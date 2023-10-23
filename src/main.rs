@@ -4,7 +4,7 @@ use std::{
     fs::File,
     io::Read,
     sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{Context, Result};
@@ -12,8 +12,8 @@ use atrium_api::{app::bsky, client::AtpServiceClient, com::atproto};
 use bytes::Bytes;
 use hmac::{Hmac, Mac};
 use log::{error, info};
+use moka::future::Cache;
 use once_cell::sync::Lazy;
-use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
 use sha1::Sha1;
 use time::OffsetDateTime;
@@ -32,11 +32,6 @@ struct IntervalConfig {
     post_ttl: usize,
     fetch_interval: u64,
     post_interval: u64,
-}
-
-#[derive(Deserialize)]
-struct RedisConfig {
-    url: String,
 }
 
 #[derive(Deserialize, Clone)]
@@ -93,7 +88,6 @@ impl DenylistConfig {
 #[derive(Deserialize)]
 struct Config {
     interval: IntervalConfig,
-    redis: RedisConfig,
     #[serde(default)]
     twitter: Option<TwitterConfig>,
     #[serde(default)]
@@ -105,8 +99,8 @@ struct Config {
     denylist: DenylistConfig,
 }
 
-#[derive(Deserialize, Debug)]
-#[cfg_attr(test, derive(Clone, PartialEq, Eq))]
+#[derive(Deserialize, Debug, Clone)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 struct Repo {
     author: String,
     description: String,
@@ -283,10 +277,11 @@ fn make_traq_post(config: &TraqConfig, repo: &Repo) -> Result<(String, String)> 
     Ok((signature, message))
 }
 
-async fn is_repo_posted(conn: &mut redis::aio::Connection, repo: &Repo) -> Result<bool> {
-    Ok(conn
-        .exists(format!("{}/{}", repo.author, repo.name))
-        .await?)
+async fn is_repo_posted(cache: &Cache<String, ()>, repo: &Repo) -> Result<bool> {
+    Ok(cache
+        .get(&format!("{}/{}", repo.author, repo.name))
+        .await
+        .is_some())
 }
 
 async fn tweet(config: &TwitterConfig, content: String) -> Result<()> {
@@ -423,22 +418,19 @@ async fn post_traq(config: &TraqConfig, signature: String, message: String) -> R
     Ok(())
 }
 
-async fn mark_posted_repo(
-    conn: &mut redis::aio::Connection,
-    repo: &Repo,
-    ttl: usize,
-) -> Result<()> {
-    conn.set_ex(format!("{}/{}", repo.author, repo.name), now_ts(), ttl)
-        .await?;
+async fn mark_posted_repo(cache: &Cache<String, ()>, repo: &Repo) -> Result<()> {
+    cache
+        .insert(format!("{}/{}", repo.author, repo.name), ())
+        .await;
     Ok(())
 }
 
-async fn main_loop(config: &Config, redis_conn: &mut redis::aio::Connection) -> Result<()> {
+async fn main_loop(config: &Config, cache: &Cache<String, ()>) -> Result<()> {
     let repos = fetch_repos().await.context("While fetching repo")?;
 
     for repo in repos {
         if config.denylist.contains(&repo)
-            || is_repo_posted(redis_conn, &repo)
+            || is_repo_posted(cache, &repo)
                 .await
                 .context("While checking repo posted")?
         {
@@ -477,8 +469,7 @@ async fn main_loop(config: &Config, redis_conn: &mut redis::aio::Connection) -> 
                 error!("{:#?}", error);
             }
         }
-
-        mark_posted_repo(redis_conn, &repo, config.interval.post_ttl)
+        mark_posted_repo(cache, &repo)
             .await
             .context("While marking repo posted")?;
 
@@ -508,15 +499,12 @@ async fn main() -> Result<()> {
         });
         config
     };
-    let redis_client =
-        redis::Client::open(config.redis.url.as_str()).context("While creating redis client")?;
-    let mut redis_conn = redis_client
-        .get_async_connection()
-        .await
-        .context("While connecting redis")?;
+    let cache = Cache::builder()
+        .time_to_live(Duration::from_secs(config.interval.post_ttl as u64))
+        .build();
 
     loop {
-        let res = main_loop(&config, &mut redis_conn).await;
+        let res = main_loop(&config, &cache).await;
         if let Err(e) = res {
             error!("{:#}", e);
         }
