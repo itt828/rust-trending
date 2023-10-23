@@ -1,5 +1,6 @@
 use std::{
     convert::TryInto,
+    env,
     fs::File,
     io::Read,
     sync::Arc,
@@ -9,6 +10,7 @@ use std::{
 use anyhow::{Context, Result};
 use atrium_api::{app::bsky, client::AtpServiceClient, com::atproto};
 use bytes::Bytes;
+use dotenvy::dotenv;
 use hmac::{Hmac, Mac};
 use log::{error, info};
 use once_cell::sync::Lazy;
@@ -275,7 +277,7 @@ fn make_toot(repo: &Repo) -> String {
 type HmacSha1 = Hmac<Sha1>;
 fn make_traq_post(config: &TraqConfig, repo: &Repo) -> Result<(String, String)> {
     let message = make_tweet(repo);
-
+    println!("{}", message);
     let mut mac = HmacSha1::new_from_slice(config.webhook_secret.as_bytes())?;
     mac.update(message.as_bytes());
     let signature = format!("{:X}", mac.finalize().into_bytes());
@@ -498,9 +500,15 @@ async fn main() -> Result<()> {
 
     let mut args = std::env::args();
     args.next();
-    let config_file_path = args.next().unwrap_or_else(|| "./config.toml".to_string());
-    let config = read_config(&config_file_path).context("While reading config file")?;
-
+    let config_file_path = args.next().unwrap_or_else(|| "/config.toml".to_string());
+    let config = {
+        let mut config = read_config(&config_file_path).context("While reading config file")?;
+        config.traq = Some(TraqConfig {
+            webhook_secret: env::var("WEBHOOK_SECRET")?,
+            ..config.traq.unwrap()
+        });
+        config
+    };
     let redis_client =
         redis::Client::open(config.redis.url.as_str()).context("While creating redis client")?;
     let mut redis_conn = redis_client

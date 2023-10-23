@@ -1,14 +1,13 @@
-version: '3'
+version: "3"
 
 services:
-  redis:
-    image: redis:4-alpine
-
   bot:
-    image: ghcr.io/pbzweihander/rust-trending:latest
-    depends_on:
-      - redis
+    build:
+      context: .
+      dockerfile: ./Dockerfile
     environment:
       - RUST_LOG=info
+      - WEBHOOK_SECRET=secret
+
     volumes:
-      - /srv/rust-trending/config.toml:/config.toml
+      - ./config.toml:/config.toml
