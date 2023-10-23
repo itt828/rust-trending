@@ -10,7 +10,6 @@ use std::{
 use anyhow::{Context, Result};
 use atrium_api::{app::bsky, client::AtpServiceClient, com::atproto};
 use bytes::Bytes;
-use dotenvy::dotenv;
 use hmac::{Hmac, Mac};
 use log::{error, info};
 use once_cell::sync::Lazy;
