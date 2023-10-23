@@ -3,9 +3,6 @@ post_ttl = 604800
 fetch_interval = 3600
 post_interval = 3600
 
-[redis]
-url = "redis://127.0.0.1:6379"
-
 [traq]
 webhook_id = "ec837915-f027-4d92-abdf-821f52cab2e2"
 webhook_secret = "DO NOT WRITE SECRET HERE"
